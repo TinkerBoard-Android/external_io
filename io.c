@@ -21,6 +21,8 @@
 #define TRUE	(!FALSE)
 #endif
 
+#define CONFIG_I2S_SHORT
+
 #ifdef MMAP64
 #define mmap mmap64
 #endif
@@ -282,8 +284,11 @@ main (int argc, char **argv)
 	if (verbose)
 		printf("Attempting to map 0x%lx bytes at address 0x%08lx\n",
 			real_len, real_addr);
-
+	#ifdef GPIOMEM
+	mfd = open("/dev/gpiomem", (memread ? O_RDONLY : O_RDWR) | O_SYNC);
+	#else
 	mfd = open("/dev/mem", (memread ? O_RDONLY : O_RDWR) | O_SYNC);
+	#endif
 	if (mfd == -1) {
 		perror("open /dev/mem");
 		exit(1);
@@ -341,8 +346,27 @@ main (int argc, char **argv)
 	else if (memread)
 		memread_memory(req_addr, real_io + offset, req_len, iosize);
 	else
+	{
+		#ifdef CONFIG_I2S_SHORT
+		switch(real_addr+offset)
+		{
+			case 0xff770190:	//pull
+				req_value &= ~(0x3 << (2*2));
+				break;
+			case 0xff77005c:	//func
+				req_value &= ~(0x3 << (2*2+16)) & ~(0x3 << (2*2));
+			      	req_value |= (((req_value >> (1*2+16)) & 0x3) << (2*2+16));
+			      	req_value |= (((req_value >> (1*2)) & 0x3) << (2*2));
+				break;
+			case 0xff7d0004:	//input output
+				req_value &= ~(0x1 << 2);
+				break;
+			default:
+				break;
+		}
+		#endif
 		write_memory(real_io + offset, req_len, iosize, req_value);
-
+	}
 	if (filename)
 		close(ffd);
 	close (mfd);
